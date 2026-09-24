@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#102a28">
-  <meta name="description" content="Laboratorio comunitario para explorar Nava de Ordunte y el Valle de Mena en 3D.">
-  <title>Nava de Ordunte · Laboratorio 3D</title>
+  <meta name="theme-color" content="#092421">
+  <meta name="description" content="Explora Nava de Ordunte y el Valle de Mena en 3D: relieve, rutas y patrimonio de la comunidad.">
+  <title>Nava de Ordunte · Valle de Mena en 3D</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://www.ign.es" crossorigin>
   <link rel="preconnect" href="https://tiles.mapterhorn.com" crossorigin>
@@ -14,37 +14,53 @@
   <link rel="manifest" href="manifest.webmanifest">
 </head>
 <body>
-  <main id="map" aria-label="Mapa tridimensional de Nava de Ordunte"></main>
-  <section id="fallback" hidden aria-label="Vista de respaldo">
-    <img id="fallback-image" alt="Ortofoto oficial del entorno de Nava de Ordunte">
-    <div class="fallback-marker" aria-hidden="true"></div>
-  </section>
+  <a class="skip-link" href="#experience">Ir a la experiencia</a>
+  <main id="experience">
+    <div id="map" aria-label="Terreno tridimensional de Nava de Ordunte y su entorno"></div>
+    <section id="fallback" hidden aria-label="Vista cartográfica alternativa">
+      <img id="fallback-image" alt="Ortofoto oficial del entorno de Nava de Ordunte">
+      <div class="origin-marker" aria-hidden="true"></div>
+    </section>
+    <div class="vignette" aria-hidden="true"></div>
 
-  <header class="panel hero">
-    <div class="eyebrow"><span class="live-dot"></span> Laboratorio abierto <span>v0.2</span></div>
-    <h1>Nava de Ordunte</h1>
-    <p>El valle comienza en la plaza. Relieve real, ortofoto pública y rutas de la comunidad.</p>
-    <div class="controls" aria-label="Controles principales">
-      <button id="fly" class="primary" disabled>↗ Revelar el valle</button>
-      <button id="home" disabled>◎ Plaza</button>
-      <button id="layer" disabled>◈ Solo relieve</button>
-      <label class="button" for="gpx">＋ Abrir GPX</label>
-      <input id="gpx" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml">
+    <nav class="topbar" aria-label="Navegación principal">
+      <button id="brand-home" class="brand" aria-label="Volver al origen"><span class="brand-mark">N</span><span><strong>Nava de Ordunte</strong><small>Valle de Mena · Burgos</small></span></button>
+      <div class="desktop-nav"><button data-section="discover">Descubre</button><button data-section="routes">Rutas</button><button data-section="territory">Territorio</button><button data-section="project">Proyecto</button></div>
+      <button id="menu-toggle" class="menu-toggle" aria-expanded="false" aria-controls="site-menu"><span>Menú</span><i aria-hidden="true"></i></button>
+    </nav>
+
+    <section id="welcome" class="welcome" aria-labelledby="welcome-title">
+      <p class="kicker">Una mirada desde el cielo</p>
+      <h1 id="welcome-title">Donde el valle<br><em>se abre.</em></h1>
+      <p class="intro">Sobrevuela el relieve, sigue caminos reales y descubre un paisaje rodeado de montañas.</p>
+      <div class="welcome-actions">
+        <button id="fly" class="cta" disabled><span>Explorar el valle</span><b>↗</b></button>
+        <label class="ghost" for="gpx"><span>Cargar mi ruta</span><b>＋</b></label>
+        <input id="gpx" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml">
+      </div>
+      <div class="promise"><span><b>3D</b> Relieve real</span><span><b>GPX</b> Rutas propias</span><span><b>∞</b> Memoria viva</span></div>
+    </section>
+
+    <div class="map-tools" aria-label="Herramientas del mapa">
+      <button id="home" disabled title="Volver al origen"><span>⌾</span><small>Origen</small></button>
+      <button id="layer" disabled title="Cambiar visualización"><span>◇</span><small>Relieve</small></button>
+      <button id="info-toggle" title="Abrir guía"><span>?</span><small>Guía</small></button>
     </div>
-  </header>
+    <aside id="status" class="status loading" role="status" aria-live="polite"><span class="spinner"></span><span id="status-text">Dibujando el territorio…</span></aside>
+  </main>
 
-  <aside id="status" class="status loading" role="status" aria-live="polite">
-    <span class="spinner" aria-hidden="true"></span>
-    <span id="status-text">Preparando el motor cartográfico…</span>
+  <div id="menu-scrim" class="scrim" hidden></div>
+  <aside id="site-menu" class="site-menu" aria-hidden="true">
+    <div class="menu-head"><div><small>Nava de Ordunte</small><strong>Explora el territorio</strong></div><button id="menu-close" aria-label="Cerrar menú">×</button></div>
+    <nav class="mobile-nav" aria-label="Secciones"><button data-section="discover"><span>01</span> Descubre <b>→</b></button><button data-section="routes"><span>02</span> Rutas <b>→</b></button><button data-section="territory"><span>03</span> Territorio <b>→</b></button><button data-section="project"><span>04</span> Proyecto <b>→</b></button><button data-section="development"><span>05</span> Desarrollo <b>→</b></button></nav>
+    <div class="menu-foot"><p>Creado con la comunidad y para la comunidad.</p><a href="https://github.com/JosebaDG/nava-ordunte-3d" target="_blank" rel="noreferrer">Código abierto en GitHub ↗</a><button id="diagnostic-toggle">Diagnóstico técnico</button></div>
   </aside>
 
-  <details id="diagnostics" class="panel diagnostics">
-    <summary>Diagnóstico</summary>
-    <pre id="diagnostic-log">Inicio de diagnóstico…</pre>
-    <div class="controls"><button id="retry">Reintentar 3D</button><button id="copy-log">Copiar informe</button></div>
-  </details>
+  <div id="content-scrim" class="scrim" hidden></div>
+  <section id="content-panel" class="content-panel" aria-hidden="true"><button id="content-close" class="panel-close" aria-label="Cerrar apartado">×</button><div id="content-body"></div></section>
 
-  <noscript>Esta experiencia necesita JavaScript. Ábrela en Safari o en un navegador moderno.</noscript>
+  <dialog id="diagnostics" class="diagnostics"><form method="dialog"><button aria-label="Cerrar">×</button></form><p class="kicker">Estado del sistema</p><h2>Diagnóstico técnico</h2><pre id="diagnostic-log">Inicio de diagnóstico…</pre><div class="dialog-actions"><button id="retry" type="button">Reintentar 3D</button><button id="copy-log" type="button">Copiar informe</button></div></dialog>
+  <noscript>Esta experiencia necesita JavaScript y un navegador moderno.</noscript>
   <script src="app.js" defer></script>
 </body>
 </html>

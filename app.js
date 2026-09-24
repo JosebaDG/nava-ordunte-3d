@@ -1,184 +1,21 @@
 'use strict';
-
-const CONFIG = {
-  version: '0.2.0',
-  plaza: [-3.269525, 43.1545417],
-  overview: { center: [-3.272, 43.145], zoom: 12.35, pitch: 74, bearing: -28 },
-  mapLibre: [
-    'https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js',
-    'https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js'
-  ],
-  orthophoto: 'https://www.ign.es/wmts/pnoa-ma?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=OI.OrthoimageCoverage&STYLE=default&TILEMATRIXSET=GoogleMapsCompatible&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg',
-  terrain: 'https://tiles.mapterhorn.com/{z}/{x}/{y}.webp',
-  fallback: 'https://www.ign.es/wms-inspire/pnoa-ma?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=OI.OrthoimageCoverage&STYLES=&CRS=EPSG:4326&BBOX=43.11,-3.33,43.19,-3.21&WIDTH=1200&HEIGHT=1000&FORMAT=image/jpeg'
-};
-
-const ui = {
-  status: document.querySelector('#status'), text: document.querySelector('#status-text'),
-  log: document.querySelector('#diagnostic-log'), details: document.querySelector('#diagnostics'),
-  fallback: document.querySelector('#fallback'), fallbackImage: document.querySelector('#fallback-image'),
-  fly: document.querySelector('#fly'), home: document.querySelector('#home'), layer: document.querySelector('#layer'),
-  gpx: document.querySelector('#gpx'), retry: document.querySelector('#retry'), copy: document.querySelector('#copy-log')
-};
-let map = null;
-let mapReady = false;
-let plainRelief = false;
-const logLines = [];
-
-function log(message, data) {
-  const line = `${new Date().toLocaleTimeString('es-ES')} · ${message}${data ? ` · ${String(data)}` : ''}`;
-  logLines.push(line);
-  ui.log.textContent = logLines.join('\n');
-  console.info('[Nava 3D]', message, data || '');
-}
-function status(message, type = 'loading') {
-  ui.text.textContent = message;
-  ui.status.className = `status ${type}`;
-  log(message);
-}
-function enableControls(enabled) {
-  [ui.fly, ui.home, ui.layer].forEach(button => { button.disabled = !enabled; });
-}
-function loadScript(url, timeout = 9000) {
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    const timer = setTimeout(() => { script.remove(); reject(new Error(`Tiempo agotado: ${url}`)); }, timeout);
-    script.src = url;
-    script.async = true;
-    script.crossOrigin = 'anonymous';
-    script.onload = () => { clearTimeout(timer); resolve(url); };
-    script.onerror = () => { clearTimeout(timer); script.remove(); reject(new Error(`No responde: ${url}`)); };
-    document.head.appendChild(script);
-  });
-}
-async function ensureMapLibre() {
-  if (window.maplibregl) return;
-  for (const source of CONFIG.mapLibre) {
-    try {
-      status(`Conectando con el motor 3D (${new URL(source).hostname})…`);
-      await loadScript(source);
-      if (window.maplibregl) { log('Motor cargado', source); return; }
-    } catch (error) { log('CDN fallido', error.message); }
-  }
-  throw new Error('Los dos servidores del motor 3D han fallado o han sido bloqueados.');
-}
-function webGLReport() {
-  try {
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
-    return gl ? `WebGL disponible: ${gl.getParameter(gl.VERSION)}` : 'WebGL no disponible';
-  } catch (error) { return `Prueba WebGL fallida: ${error.message}`; }
-}
-function showFallback(reason) {
-  log('Activando respaldo 2D', reason);
-  ui.fallbackImage.src = CONFIG.fallback;
-  ui.fallback.hidden = false;
-  document.querySelector('#map').hidden = true;
-  enableControls(false);
-  status(`Modo seguro: ortofoto oficial disponible, pero el 3D no arrancó. Abre “Diagnóstico” para ayudarnos a corregirlo.`, 'error');
-  ui.details.open = true;
-}
-function styleDefinition() {
-  return {
-    version: 8,
-    sources: {
-      pnoa: { type: 'raster', tiles: [CONFIG.orthophoto], tileSize: 256, minzoom: 6, maxzoom: 19, attribution: 'Ortofotos PNOA © <a href="https://www.ign.es/">IGN/CNIG</a> · CC BY 4.0' },
-      elevation: { type: 'raster-dem', tiles: [CONFIG.terrain], tileSize: 512, maxzoom: 14, encoding: 'terrarium', attribution: 'Elevación © <a href="https://mapterhorn.com/attribution">Mapterhorn y fuentes</a>' }
-    },
-    layers: [
-      { id: 'background', type: 'background', paint: { 'background-color': '#173633' } },
-      { id: 'orthophoto', type: 'raster', source: 'pnoa', paint: { 'raster-saturation': -0.08, 'raster-contrast': 0.08 } },
-      { id: 'hillshade', type: 'hillshade', source: 'elevation', paint: { 'hillshade-exaggeration': 0.38, 'hillshade-shadow-color': '#122c2a', 'hillshade-highlight-color': '#f1d9ae' } }
-    ]
-  };
-}
-async function start() {
-  if (map) { try { map.remove(); } catch (_) {} map = null; }
-  mapReady = false;
-  document.querySelector('#map').hidden = false;
-  ui.fallback.hidden = true;
-  enableControls(false);
-  status('Preparando el motor cartográfico…');
-  log(`Versión ${CONFIG.version}`);
-  log(navigator.userAgent);
-  log(webGLReport());
-  try {
-    await ensureMapLibre();
-    if (!maplibregl.supported()) throw new Error('MapLibre informa de que WebGL no está disponible.');
-    map = new maplibregl.Map({
-      container: 'map', style: styleDefinition(), center: CONFIG.plaza, zoom: 13.45,
-      pitch: 66, bearing: -22, minZoom: 9, maxZoom: 18, renderWorldCopies: false,
-      attributionControl: false, fadeDuration: 0, antialias: true
-    });
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-    const marker = document.createElement('div'); marker.className = 'nava-marker';
-    new maplibregl.Marker({ element: marker }).setLngLat(CONFIG.plaza)
-      .setPopup(new maplibregl.Popup({ offset: 20 }).setHTML('<strong>Plaza de Nava de Ordunte</strong><br>Punto de partida del proyecto.')).addTo(map);
-    const timeout = setTimeout(() => {
-      if (!mapReady) { status('El motor arrancó, pero las capas tardan demasiado. Revisa el diagnóstico o reintenta.', 'error'); ui.details.open = true; }
-    }, 18000);
-    map.on('load', () => {
-      clearTimeout(timeout);
-      try { map.setTerrain({ source: 'elevation', exaggeration: 1.22 }); log('Terreno 3D activado'); }
-      catch (error) { log('Terreno no activado', error.message); }
-      mapReady = true; enableControls(true);
-      status('Mapa listo. Toca “Revelar el valle” o abre una ruta GPX.', 'ready');
-    });
-    map.on('error', event => {
-      const message = event?.error?.message || 'Error cartográfico sin detalle';
-      log('Error de capa', message);
-      if (!mapReady) status(`Una fuente está fallando: ${message}`, 'error');
-    });
-  } catch (error) { showFallback(error.message); }
-}
-function camera(target) {
-  if (!mapReady) return;
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  map[reduced ? 'jumpTo' : 'flyTo']({ ...target, duration: reduced ? 0 : (target.duration || 6500), essential: true });
-}
-function parseGPX(text) {
-  const xml = new DOMParser().parseFromString(text, 'application/xml');
-  if (xml.querySelector('parsererror')) throw new Error('El archivo no contiene XML válido.');
-  let groups = [...xml.getElementsByTagName('trkseg')].map(segment => [...segment.getElementsByTagName('trkpt')]);
-  if (!groups.length) groups = [[...xml.getElementsByTagName('rtept')]];
-  const lines = groups.map(group => group.map(point => [Number(point.getAttribute('lon')), Number(point.getAttribute('lat'))])
-    .filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lon) <= 180 && Math.abs(lat) <= 90)).filter(line => line.length > 1);
-  if (!lines.length) throw new Error('No se han encontrado puntos de track o ruta.');
-  return lines;
-}
-function drawRoute(lines, filename) {
-  const geojson = { type: 'FeatureCollection', features: lines.map(coordinates => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } })) };
-  if (map.getSource('community-route')) map.getSource('community-route').setData(geojson);
-  else {
-    map.addSource('community-route', { type: 'geojson', data: geojson });
-    map.addLayer({ id: 'route-shadow', type: 'line', source: 'community-route', paint: { 'line-color': '#102a28', 'line-width': 9, 'line-opacity': .7 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'route', type: 'line', source: 'community-route', paint: { 'line-color': '#ffd08d', 'line-width': 5 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-  }
-  const bounds = new maplibregl.LngLatBounds(); lines.flat().forEach(point => bounds.extend(point));
-  map.fitBounds(bounds, { padding: 70, pitch: 58, maxZoom: 15, duration: 2200 });
-  status(`Ruta “${filename}” cargada localmente; no se ha subido a ningún servidor.`, 'ready');
-}
-ui.fly.addEventListener('click', () => camera({ ...CONFIG.overview, duration: 7200 }));
-ui.home.addEventListener('click', () => camera({ center: CONFIG.plaza, zoom: 13.45, pitch: 66, bearing: -22, duration: 2600 }));
-ui.layer.addEventListener('click', () => {
-  if (!mapReady) return; plainRelief = !plainRelief;
-  map.setLayoutProperty('orthophoto', 'visibility', plainRelief ? 'none' : 'visible');
-  map.setPaintProperty('hillshade', 'hillshade-exaggeration', plainRelief ? .85 : .38);
-  ui.layer.textContent = plainRelief ? '▧ Mostrar ortofoto' : '◈ Solo relieve';
-});
-ui.gpx.addEventListener('change', async event => {
-  const file = event.target.files?.[0]; if (!file || !mapReady) return;
-  try { drawRoute(parseGPX(await file.text()), file.name); }
-  catch (error) { status(`No se pudo leer el GPX: ${error.message}`, 'error'); }
-  event.target.value = '';
-});
-ui.retry.addEventListener('click', start);
-ui.copy.addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(logLines.join('\n')); ui.copy.textContent = 'Copiado'; setTimeout(() => { ui.copy.textContent = 'Copiar informe'; }, 1500); }
-  catch (_) { status('No se pudo copiar; mantén pulsado sobre el registro.', 'error'); }
-});
-window.addEventListener('error', event => log('Error JavaScript global', event.message));
-window.addEventListener('unhandledrejection', event => log('Promesa rechazada', event.reason?.message || event.reason));
-window.addEventListener('orientationchange', () => setTimeout(() => map?.resize(), 250));
-start();
+const CONFIG={version:'0.3.0',origin:[-3.269525,43.1545417],overview:{center:[-3.272,43.145],zoom:12.35,pitch:74,bearing:-28},mapLibre:['https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js','https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js'],orthophoto:'https://www.ign.es/wmts/pnoa-ma?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=OI.OrthoimageCoverage&STYLE=default&TILEMATRIXSET=GoogleMapsCompatible&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg',fallback:'https://www.ign.es/wms-inspire/pnoa-ma?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=OI.OrthoimageCoverage&STYLES=&CRS=EPSG:4326&BBOX=43.11,-3.33,43.19,-3.21&WIDTH=1200&HEIGHT=1000&FORMAT=image/jpeg'};
+const SECTIONS={discover:{kicker:'Descubre',title:'Un valle que se revela a cada paso',lead:'Entre los Montes de Ordunte y la Peña de Mena, el paisaje forma un gran anfiteatro natural. Esta experiencia nace para recorrerlo desde el aire y volver después a sus caminos.',cards:[['Sobrevuela','Inclina, gira y acércate al relieve para comprender el territorio.'],['Sigue una ruta','Abre un archivo GPX y contémplalo directamente sobre las montañas.'],['Detente','Los futuros hitos unirán cada lugar con fotografía, vídeo e historia.'],['Comparte','El código y el proceso están abiertos para que la comunidad participe.']]},routes:{kicker:'Rutas',title:'Los caminos cuentan el paisaje',lead:'Senderos familiares, grandes travesías y recorridos históricos se convertirán en relatos geográficos: trazado, desnivel, vistas y memoria del camino.',html:'<h3>Ahora mismo</h3><p>Pulsa <strong>Cargar mi ruta</strong> y selecciona un GPX. Se procesa dentro de tu dispositivo y aparece sobre el relieve sin enviarse a ningún servidor.</p><h3>En construcción</h3><ul><li>Catálogo comunitario de recorridos.</li><li>Perfil de elevación y puntos de interés.</li><li>Vuelos de cámara diseñados para cada ruta.</li><li>Fotografías y vídeos ligados al lugar.</li></ul>'},territory:{kicker:'Territorio',title:'Paisaje, historia y memoria viva',lead:'Calzadas, caminos, canales hidroeléctricos, montes y agua forman una sola historia. El mapa será la puerta de entrada, no el destino final.',cards:[['Paisaje','Relieve, bosque, embalse y vistas que explican el efecto de anfiteatro.'],['Caminos históricos','Calzadas, Camino de Santiago y conexiones antiguas del valle.'],['Ingeniería del agua','Canales y elementos hidroeléctricos integrados en el territorio.'],['Memoria local','Relatos, imágenes y conocimiento aportado con contexto y permiso.']]},project:{kicker:'El proyecto',title:'De la comunidad para la comunidad',lead:'Una plataforma abierta y no comercial para conocer, recorrer y preservar el Valle de Mena con rigor geográfico y una narrativa visual a su altura.',html:'<h3>Principios</h3><ul><li>Datos públicos y atribución visible.</li><li>Verdad geográfica antes que espectáculo.</li><li>Privacidad, seguridad y protección del patrimonio.</li><li>Accesibilidad y funcionamiento progresivo.</li></ul><h3>Participa</h3><p>Sigue el desarrollo y propone mejoras en <a href="https://github.com/JosebaDG/nava-ordunte-3d" target="_blank" rel="noreferrer">GitHub ↗</a>.</p>'},development:{kicker:'Desarrollo abierto',title:'Cada avance quedará documentado',lead:'El repositorio muestra decisiones, experimentos, errores y resultados para que el método pueda aprenderse y reproducirse en otros territorios.',html:'<div class="timeline"><article><b>v0.3 · Experiencia y terreno</b><small>Motor 3D corregido, portada inmersiva, navegación responsiva y GPX local.</small></article><article><b>Siguiente · MDT del CNIG</b><small>Recorte propio, validación altimétrica y niveles de detalle.</small></article><article><b>Después · Maqueta narrativa</b><small>Borde físico, agua, atmósfera y vuelos de cámara.</small></article><article><b>Horizonte · Patrimonio inmersivo</b><small>Rutas editoriales, multimedia y enclaves reconstruidos en 3D.</small></article></div><h3>Documentación</h3><p>Consulta la <a href="https://github.com/JosebaDG/nava-ordunte-3d/blob/main/docs/ROADMAP.md" target="_blank" rel="noreferrer">hoja de ruta completa ↗</a>.</p>'}};
+const $=s=>document.querySelector(s),ui={status:$('#status'),text:$('#status-text'),log:$('#diagnostic-log'),diagnostics:$('#diagnostics'),map:$('#map'),fallback:$('#fallback'),fallbackImage:$('#fallback-image'),welcome:$('#welcome'),fly:$('#fly'),home:$('#home'),layer:$('#layer'),gpx:$('#gpx'),menu:$('#site-menu'),menuToggle:$('#menu-toggle'),menuClose:$('#menu-close'),menuScrim:$('#menu-scrim'),content:$('#content-panel'),contentBody:$('#content-body'),contentClose:$('#content-close'),contentScrim:$('#content-scrim')};
+let map=null,mapReady=false,plainRelief=false;const logs=[];
+function log(message,data){const line=`${new Date().toLocaleTimeString('es-ES')} · ${message}${data?` · ${String(data)}`:''}`;logs.push(line);ui.log.textContent=logs.join('\n');console.info('[Nava 3D]',message,data||'')}
+function status(message,type='loading'){ui.text.textContent=message;ui.status.className=`status ${type}`;log(message)}function controls(on){[ui.fly,ui.home,ui.layer].forEach(b=>b.disabled=!on)}
+function webGL(){try{const c=document.createElement('canvas'),gl=c.getContext('webgl2')||c.getContext('webgl');log(gl?`WebGL disponible: ${gl.getParameter(gl.VERSION)}`:'WebGL no disponible');return Boolean(gl)}catch(error){log('Comprobación gráfica fallida',error.message);return false}}
+function loadScript(url,timeout=9000){return new Promise((resolve,reject)=>{const s=document.createElement('script'),timer=setTimeout(()=>{s.remove();reject(Error(`Tiempo agotado: ${url}`))},timeout);s.src=url;s.async=true;s.crossOrigin='anonymous';s.onload=()=>{clearTimeout(timer);resolve(url)};s.onerror=()=>{clearTimeout(timer);s.remove();reject(Error(`No responde: ${url}`))};document.head.appendChild(s)})}
+async function ensureMapLibre(){if(window.maplibregl?.Map)return;for(const source of CONFIG.mapLibre){try{status('Preparando la vista tridimensional…');await loadScript(source);if(window.maplibregl?.Map){log('Motor cargado',source);return}}catch(error){log('Fuente alternativa necesaria',error.message)}}throw Error('No ha sido posible cargar el motor cartográfico.')}
+function fallback(reason){log('Vista alternativa activada',reason);ui.fallbackImage.src=CONFIG.fallback;ui.fallback.hidden=false;ui.map.hidden=true;controls(false);status('La ortofoto está disponible. La vista 3D puede reintentarse desde el menú.','error')}
+function style(){return{version:8,sources:{pnoa:{type:'raster',tiles:[CONFIG.orthophoto],tileSize:256,minzoom:6,maxzoom:19,attribution:'Ortofotos PNOA © <a href="https://www.ign.es/">IGN/CNIG</a> · CC BY 4.0'},terrainSource:{type:'raster-dem',url:'https://tiles.mapterhorn.com/tilejson.json'},hillshadeSource:{type:'raster-dem',url:'https://tiles.mapterhorn.com/tilejson.json'}},layers:[{id:'background',type:'background',paint:{'background-color':'#173633'}},{id:'orthophoto',type:'raster',source:'pnoa',paint:{'raster-saturation':-.08,'raster-contrast':.08}},{id:'hillshade',type:'hillshade',source:'hillshadeSource',paint:{'hillshade-exaggeration':.4,'hillshade-shadow-color':'#102927','hillshade-highlight-color':'#f1d9ae'}}],terrain:{source:'terrainSource',exaggeration:1.22},sky:{}}}
+async function start(){if(map){try{map.remove()}catch(_){}map=null}mapReady=false;ui.map.hidden=false;ui.fallback.hidden=true;controls(false);status('Dibujando el territorio…');log(`Versión ${CONFIG.version}`);try{if(!webGL())throw Error('La aceleración gráfica no está disponible.');await ensureMapLibre();map=new maplibregl.Map({container:'map',style:style(),center:CONFIG.origin,zoom:13.45,pitch:66,bearing:-22,minZoom:9,maxZoom:18,maxPitch:85,renderWorldCopies:false,attributionControl:false,fadeDuration:0,canvasContextAttributes:{antialias:true}});map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-right');map.addControl(new maplibregl.AttributionControl({compact:true}),'bottom-right');const marker=document.createElement('div');marker.className='nava-marker';new maplibregl.Marker({element:marker}).setLngLat(CONFIG.origin).setPopup(new maplibregl.Popup({offset:20}).setHTML('<strong>Origen</strong><br>Comienza aquí.')).addTo(map);const timer=setTimeout(()=>{if(!mapReady)status('El territorio está tardando más de lo esperado. Puedes reintentar desde el menú.','error')},20000);map.on('load',()=>{clearTimeout(timer);mapReady=true;controls(true);status('El valle está listo. Explora el relieve o carga una ruta.','ready');log('Terreno 3D activo')});map.on('error',event=>{const message=event?.error?.message||'Error cartográfico';log('Incidencia de capa',message);if(!mapReady)status('Una de las capas no responde. Reintentando…','error')})}catch(error){fallback(error.message)}}
+function move(target,hide=true){if(!mapReady)return;if(hide)ui.welcome.classList.add('exploring');const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;map[reduced?'jumpTo':'flyTo']({...target,duration:reduced?0:(target.duration||2600),essential:true})}
+function origin(){ui.welcome.classList.remove('exploring');move({center:CONFIG.origin,zoom:13.45,pitch:66,bearing:-22,duration:2600},false)}
+function parseGPX(text){const xml=new DOMParser().parseFromString(text,'application/xml');if(xml.querySelector('parsererror'))throw Error('El archivo no contiene XML válido.');let groups=[...xml.getElementsByTagName('trkseg')].map(s=>[...s.getElementsByTagName('trkpt')]);if(!groups.length)groups=[[...xml.getElementsByTagName('rtept')]];const lines=groups.map(g=>g.map(p=>[Number(p.getAttribute('lon')),Number(p.getAttribute('lat'))]).filter(([x,y])=>Number.isFinite(x)&&Number.isFinite(y)&&Math.abs(x)<=180&&Math.abs(y)<=90)).filter(line=>line.length>1);if(!lines.length)throw Error('No se han encontrado puntos de ruta.');return lines}
+function drawRoute(lines,name){const data={type:'FeatureCollection',features:lines.map(coordinates=>({type:'Feature',properties:{},geometry:{type:'LineString',coordinates}}))};if(map.getSource('route'))map.getSource('route').setData(data);else{map.addSource('route',{type:'geojson',data});map.addLayer({id:'route-shadow',type:'line',source:'route',paint:{'line-color':'#071c1b','line-width':10,'line-opacity':.72},layout:{'line-cap':'round','line-join':'round'}});map.addLayer({id:'route',type:'line',source:'route',paint:{'line-color':'#ffd08d','line-width':5},layout:{'line-cap':'round','line-join':'round'}})}const bounds=new maplibregl.LngLatBounds();lines.flat().forEach(p=>bounds.extend(p));ui.welcome.classList.add('exploring');map.fitBounds(bounds,{padding:70,pitch:58,maxZoom:15,duration:2400});status(`Ruta “${name}” abierta en el mapa.`,'ready')}
+function menu(open){ui.menu.classList.toggle('open',open);ui.menu.setAttribute('aria-hidden',String(!open));ui.menuToggle.setAttribute('aria-expanded',String(open));ui.menuScrim.hidden=!open;requestAnimationFrame(()=>ui.menuScrim.classList.toggle('visible',open))}
+function section(key){const s=SECTIONS[key];if(!s)return;menu(false);const cards=s.cards?`<div class="cards">${s.cards.map(([a,b])=>`<article class="info-card"><b>${a}</b><span>${b}</span></article>`).join('')}</div>`:'';ui.contentBody.innerHTML=`<p class="kicker">${s.kicker}</p><h2>${s.title}</h2><p class="lead">${s.lead}</p>${cards}${s.html||''}`;ui.content.classList.add('open');ui.content.setAttribute('aria-hidden','false');ui.contentScrim.hidden=false;requestAnimationFrame(()=>ui.contentScrim.classList.add('visible'))}
+function closeSection(){ui.content.classList.remove('open');ui.content.setAttribute('aria-hidden','true');ui.contentScrim.classList.remove('visible');setTimeout(()=>ui.contentScrim.hidden=true,350)}
+ui.fly.onclick=()=>move({...CONFIG.overview,duration:7200});ui.home.onclick=origin;$('#brand-home').onclick=origin;ui.layer.onclick=()=>{if(!mapReady)return;plainRelief=!plainRelief;map.setLayoutProperty('orthophoto','visibility',plainRelief?'none':'visible');map.setPaintProperty('hillshade','hillshade-exaggeration',plainRelief?.88:.4);ui.layer.querySelector('small').textContent=plainRelief?'Ortofoto':'Relieve'};ui.gpx.onchange=async event=>{const file=event.target.files?.[0];if(!file||!mapReady)return;try{drawRoute(parseGPX(await file.text()),file.name)}catch(error){status(`No se pudo abrir la ruta: ${error.message}`,'error')}event.target.value=''};ui.menuToggle.onclick=()=>menu(true);ui.menuClose.onclick=()=>menu(false);ui.menuScrim.onclick=()=>menu(false);document.querySelectorAll('[data-section]').forEach(b=>b.onclick=()=>section(b.dataset.section));ui.contentClose.onclick=closeSection;ui.contentScrim.onclick=closeSection;$('#info-toggle').onclick=()=>section('discover');$('#diagnostic-toggle').onclick=()=>{menu(false);ui.diagnostics.showModal()};$('#retry').onclick=()=>{ui.diagnostics.close();start()};$('#copy-log').onclick=async()=>{try{await navigator.clipboard.writeText(logs.join('\n'));$('#copy-log').textContent='Copiado';setTimeout(()=>$('#copy-log').textContent='Copiar informe',1400)}catch(_){status('No se pudo copiar el informe.','error')}};window.addEventListener('error',e=>log('Error de aplicación',e.message));window.addEventListener('unhandledrejection',e=>log('Operación rechazada',e.reason?.message||e.reason));window.addEventListener('orientationchange',()=>setTimeout(()=>map?.resize(),250));document.addEventListener('keydown',e=>{if(e.key==='Escape'){menu(false);closeSection()}});start();
