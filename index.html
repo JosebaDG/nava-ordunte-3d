@@ -1,2 +1,50 @@
 <!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Nava de Ordunte · Mapa 3D</title><link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css"><style>*{box-sizing:border-box}html,body,#map{width:100%;height:100%;margin:0}body{font-family:system-ui,-apple-system,sans-serif;background:#142827;color:#fff}#map{position:absolute;inset:0}header{position:absolute;z-index:2;top:16px;left:16px;right:16px;max-width:410px;border-radius:18px;background:#0b2426df;padding:17px;backdrop-filter:blur(12px)}h1{font:normal 32px Georgia,serif;margin:0 0 7px}p{font-size:13px;line-height:1.45;margin:0 0 12px;color:#e4ece4}.row{display:flex;flex-wrap:wrap;gap:7px}button,label{font:600 12px system-ui;cursor:pointer;color:white;background:#294849;border:1px solid #ffffff77;padding:9px 12px;border-radius:30px}button:first-child{color:#172627;background:#f2c087;border-color:#f2c087}#gpx{display:none}#status{position:absolute;z-index:3;bottom:22px;left:15px;right:15px;max-width:610px;background:#0b2426ee;padding:12px;border-left:4px solid #f2c087;border-radius:4px;font-size:12px;line-height:1.45}a{color:#f2c087}.dot{width:23px;height:23px;border-radius:50%;background:#f2c087;border:3px solid white;box-shadow:0 0 0 8px #f2c08755}.maplibregl-ctrl-top-right{top:235px}@media(max-width:450px){h1{font-size:27px}header{padding:12px}.maplibregl-ctrl-top-right{top:220px}}</style></head><body><div id="map"></div><header><h1>Nava de Ordunte</h1><p>El valle comienza en la plaza. Explora la ortofoto y el relieve 3D, o carga una ruta GPX.</p><div class="row"><button id="fly">↗ Despegar</button><button id="home">◎ Plaza</button><button id="layer">◈ Relieve</button><label for="gpx">＋ Abrir GPX</label><input id="gpx" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml"></div></header><div id="status" role="status" aria-live="polite">Cargando mapa real… Se necesita Internet.</div><script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script><script>(()=>{const s=document.getElementById('status'),say=x=>s.textContent=x;if(!window.maplibregl){say('No se pudo cargar MapLibre. Comprueba Internet o abre esta página en Safari.');return}if(!maplibregl.supported()){say('WebGL no disponible en este navegador o visor. Abre la página en Safari.');return}const P=[-3.269525,43.1545417],u='https://www.ign.es/wmts/pnoa-ma?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=OI.OrthoimageCoverage&STYLE=default&TILEMATRIXSET=GoogleMapsCompatible&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg';let map;try{map=new maplibregl.Map({container:'map',center:P,zoom:13.8,pitch:65,bearing:-22,maxZoom:18,minZoom:10,renderWorldCopies:false,style:{version:8,sources:{photo:{type:'raster',tiles:[u],tileSize:256,maxzoom:19,attribution:'Ortofotos PNOA © <a href="https://www.ign.es/">IGN/CNIG</a>'},dem:{type:'raster-dem',url:'https://tiles.mapterhorn.com/tilejson.json',encoding:'terrarium',attribution:'Elevación © <a href="https://mapterhorn.com/attribution/">Mapterhorn y fuentes</a>'},shade:{type:'raster-dem',url:'https://tiles.mapterhorn.com/tilejson.json',encoding:'terrarium'}},layers:[{id:'base',type:'background',paint:{'background-color':'#345452'}},{id:'orto',type:'raster',source:'photo'},{id:'sombra',type:'hillshade',source:'shade',paint:{'hillshade-exaggeration':0.35}}],terrain:{source:'dem',exaggeration:1},sky:{}}})}catch(e){say('Error al iniciar el mapa: '+e.message);return}map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-right');map.addControl(new maplibregl.AttributionControl({compact:true}),'bottom-right');new maplibregl.Marker({element:Object.assign(document.createElement('div'),{className:'dot'})}).setLngLat(P).setPopup(new maplibregl.Popup().setText('Plaza de Nava de Ordunte')).addTo(map);map.on('load',()=>say('Mapa listo. Arrastra para explorar; toca Despegar para ver el valle.'));map.on('error',e=>{console.error(e.error);say('Error al cargar una capa: '+(e.error?.message||'comprueba conexión, IGN y Mapterhorn'))});const move=o=>matchMedia('(prefers-reduced-motion: reduce)').matches?map.jumpTo(o):map.flyTo(o);document.getElementById('fly').onclick=()=>move({center:[-3.272,43.145],zoom:12.5,pitch:72,bearing:-28,duration:7500});document.getElementById('home').onclick=()=>move({center:P,zoom:13.8,pitch:65,bearing:-22,duration:2500});let alt=false;document.getElementById('layer').onclick=e=>{alt=!alt;map.setLayoutProperty('orto','visibility',alt?'none':'visible');map.setPaintProperty('sombra','hillshade-exaggeration',alt?.85:.35);e.target.textContent=alt?'▧ Ortofoto':'◈ Relieve'};document.getElementById('gpx').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const xml=new DOMParser().parseFromString(await f.text(),'application/xml');if(xml.querySelector('parsererror'))throw Error('XML inválido');let seg=[...xml.getElementsByTagName('trkseg')].map(x=>[...x.getElementsByTagName('trkpt')]);if(!seg.length)seg=[[...xml.getElementsByTagName('rtept')]];const lines=seg.map(s=>s.map(p=>[+p.getAttribute('lon'),+p.getAttribute('lat')]).filter(([x,y])=>Number.isFinite(x)&&Number.isFinite(y)&&Math.abs(x)<=180&&Math.abs(y)<=90)).filter(s=>s.length>1);if(!lines.length)throw Error('Faltan puntos de ruta');const data={type:'FeatureCollection',features:lines.map(s=>({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:s}}))};if(map.getSource('ruta'))map.getSource('ruta').setData(data);else{map.addSource('ruta',{type:'geojson',data});map.addLayer({id:'ruta',type:'line',source:'ruta',paint:{'line-color':'#ffcc80','line-width':5},layout:{'line-cap':'round','line-join':'round'}})}const b=new maplibregl.LngLatBounds();lines.flat().forEach(p=>b.extend(p));map.fitBounds(b,{padding:70,pitch:55,maxZoom:15,duration:1800});say('Ruta '+f.name+' leída localmente en tu navegador.')}catch(err){say('No se pudo leer el GPX: '+err.message)}e.target.value=''}})()</script></body></html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#102a28">
+  <meta name="description" content="Laboratorio comunitario para explorar Nava de Ordunte y el Valle de Mena en 3D.">
+  <title>Nava de Ordunte · Laboratorio 3D</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://www.ign.es" crossorigin>
+  <link rel="preconnect" href="https://tiles.mapterhorn.com" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="manifest" href="manifest.webmanifest">
+</head>
+<body>
+  <main id="map" aria-label="Mapa tridimensional de Nava de Ordunte"></main>
+  <section id="fallback" hidden aria-label="Vista de respaldo">
+    <img id="fallback-image" alt="Ortofoto oficial del entorno de Nava de Ordunte">
+    <div class="fallback-marker" aria-hidden="true"></div>
+  </section>
+
+  <header class="panel hero">
+    <div class="eyebrow"><span class="live-dot"></span> Laboratorio abierto <span>v0.2</span></div>
+    <h1>Nava de Ordunte</h1>
+    <p>El valle comienza en la plaza. Relieve real, ortofoto pública y rutas de la comunidad.</p>
+    <div class="controls" aria-label="Controles principales">
+      <button id="fly" class="primary" disabled>↗ Revelar el valle</button>
+      <button id="home" disabled>◎ Plaza</button>
+      <button id="layer" disabled>◈ Solo relieve</button>
+      <label class="button" for="gpx">＋ Abrir GPX</label>
+      <input id="gpx" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml">
+    </div>
+  </header>
+
+  <aside id="status" class="status loading" role="status" aria-live="polite">
+    <span class="spinner" aria-hidden="true"></span>
+    <span id="status-text">Preparando el motor cartográfico…</span>
+  </aside>
+
+  <details id="diagnostics" class="panel diagnostics">
+    <summary>Diagnóstico</summary>
+    <pre id="diagnostic-log">Inicio de diagnóstico…</pre>
+    <div class="controls"><button id="retry">Reintentar 3D</button><button id="copy-log">Copiar informe</button></div>
+  </details>
+
+  <noscript>Esta experiencia necesita JavaScript. Ábrela en Safari o en un navegador moderno.</noscript>
+  <script src="app.js" defer></script>
+</body>
+</html>

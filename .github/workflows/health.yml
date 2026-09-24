@@ -1,0 +1,23 @@
+name: Health check
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+jobs:
+  static-and-services:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate JavaScript syntax
+        run: node --check app.js
+      - name: Check required files
+        run: test -s index.html && test -s styles.css && test -s README.md
+      - name: Check MapLibre CDN
+        run: curl --fail --location --silent --show-error --max-time 25 --range 0-1024 https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js >/dev/null
+      - name: Check terrain metadata
+        run: curl --fail --location --silent --show-error --max-time 25 -A 'Mozilla/5.0' https://tiles.mapterhorn.com/tilejson.json | grep -q 'terrarium'
+      - name: Check PNOA capabilities
+        run: curl --fail --location --silent --show-error --max-time 25 'https://www.ign.es/wmts/pnoa-ma?service=WMTS&request=GetCapabilities' | grep -q 'OI.OrthoimageCoverage'
